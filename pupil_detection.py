@@ -114,4 +114,20 @@ ax[3].imshow(temp4[:,:,::-1])
 ax[3].set_title('minNeighbors=50')
 plt.show()
 
+# HSV
 
+# 이미지 파일을 컬러로 불러옴
+# cv2.imread로 불러온 이미지는 RGB Color 모델이다.
+img_color = cv2.imread('image/balls.jpg')
+
+# cvtColor 함수를 이용하여 hsv 색공간으로 변환
+img_hsv = cv2.cvtColor(img_color, cv2.COLOR_BGR2HSV)
+
+# hsv 이미지에서 객체의 HSV color 범위를 지정
+lower_yellow = (20, 20, 100)
+upper_yellow = (32, 255, 255)
+
+# 범위내의 픽셀들을 흰색, 나머지 검은색
+img_mask_hsv = cv2.inRange(img_hsv, lower_yellow, upper_yellow)
+
+# 바이너리 이미지를 마스크로 사용하여 원본이미지에서 범위값에 
