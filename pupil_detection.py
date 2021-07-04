@@ -130,4 +130,108 @@ upper_yellow = (32, 255, 255)
 # 범위내의 픽셀들을 흰색, 나머지 검은색
 img_mask_hsv = cv2.inRange(img_hsv, lower_yellow, upper_yellow)
 
-# 바이너리 이미지를 마스크로 사용하여 원본이미지에서 범위값에 
+# 바이너리 이미지를 마스크로 사용하여 원본이미지에서 범위값에 해당하는 영상부분을 획득
+img_result = cv2.bitwise_and(img_color, img_color, mask = img_mask_hsv)
+
+# 마스크 이미지 출력
+# 범위 내에 들어가는 흰색은 255, 검은색은 0
+plt.imshow(img_mask_hsv, cmap='gray')
+plt.show()
+
+#원본 이미지와 노란색공을 제외한 나머지 부분이 검은색으로 표현된 이미지 출력
+fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15,15))
+ax[0].set_xticklabels([])
+ax[0].set_yticklabels([])
+ax[0].imshow( cv2.cvtColor(img_color, cv2.COLOR_BGR2RGB))
+ax[0].set_title("Original Image")
+
+ax[1].set_xticklabels([])
+ax[1].set_yticklabels([])
+ax[1].imshow( cv2.cvtColor(img_result, cv2.COLOR_BGR2RGB))
+ax[1].set_title("Result")
+plt.show()
+
+#동공검출에 적용
+
+# 영상을 이미지로 바꾸기
+vidcap = cv2.VideoCapture('data/samples/sample_2.mp4') success,image = vidcap.read()
+count = 1 success = True
+while success: 
+ try:
+  success,image = vidcap.read()
+  cv2.imwrite("data_0702/sample/image{}.jpg".format(str(count).zfill(3)), image)
+  #print("saved image %d.jpg" % count)
+  count += 1
+ except: 
+  break
+# Haar cascade를 이용해서 눈 찾기
+
+# 원본이미지
+img = cv2.imread('data_0702/sample/image041.jpg') 
+plt.imshow(img[:,:,::-1])
+
+# 얼굴 찾기
+eye_cascade = cv2.CascadeClassifier('haarcascade_eye.xml')
+face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+
+faces = face_cascade.detectMultiScale(img)
+
+temp = img.copy()
+
+for (x,y,w,h) in faces: 
+ cv2.rectangle(temp,(x,y),(x+w,y+h),(255,0,0),2)
+ 
+plt.imshow(img[:,:,::-1])
+
+# 눈 찾기
+eyes = eye_cascade.detectMultiScale(img) 
+temp = img.copy()
+for (x,y,w,h) in eyes:
+ # 눈 바운딩 박스 그리기
+ cv2.rectangle(temp,(x,y),(x+w,y+h),(0,255,0),4)
+
+plt.imshow(temp[:,:,::-1])
+
+# 바운딩 박스의 폭이 가장 넓은 상위 2개의 박스만 찾기
+eyes = eye_cascade.detectMultiScale(img) 
+eyes = eyes[eyes[:,2].argsort()[-2:]] temp = img.copy()
+for (x,y,w,h) in eyes:
+ # 눈 바운딩 박스 그리기
+ cv2.rectangle(temp,(x,y),(x+w,y+h),(0,255,0),4) 
+
+plt.imshow(temp[:,:,::-1])
+
+#HSV Color model을 이용해 빛이 있는 쪽의 눈(target eye) 찾기
+
+# hsv 변환
+img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+# 빛의 범위
+lower_light = (0, 50, 200) 
+upper_light = (255, 255, 255)
+
+mask_light = cv2.inRange(img_hsv, lower_light, upper_light)
+
+plt.imshow(mask_light, cmap='gray')
+
+
+'''
+바운딩박스의 x값이 이미지의 왼쪽에 있으면 왼쪽눈, 오른쪽에 있으면 오른쪽 눈으로 정의
+바운딩박스 영역에서 빛이 비추는 비율(10%)이 일정 값 이상이고 비율이 큰쪽을 target_eye로 정의
+'''
+height, width = img.shape[:2]
+
+x_l, y_l, w_l, h_l = eyes[eyes[:,0] < width//2].flatten()
+x_r, y_r, w_r, h_r = eyes[eyes[:,0] > width//2].flatten()
+
+left_value = np.sum(mask_light[y_l:y_l+h_l,x_l:x_l+w_l])/(w_l*h_l*255)
+right_value = np.sum(mask_light[y_r:y_r+h_r,x_r:x_r+w_r])/(w_r*h_r*255)
+
+temp = img.copy()
+if (left_value>right_value):
+ if left_value>0.1: 
+  cv2.rectangle(temp,(x_l,y_l),(x_l+w_l,y_l+h_l),(0,255,0),4)
+else:
+ if right_value>0.1:
+     cv2.rectangle(temp,(x_r,y_r),(x_r+w_r,y_r+h_r),(0,255,0),4)
+plt.imshow(temp[:,:,::-1])
