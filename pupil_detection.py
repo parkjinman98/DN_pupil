@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 from matplotlib import pyplot as plt
+from sklearn.covariance import EllipticEnvelope
 
 #얼굴분류기, 눈 분류기 불러오기
 face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml') 
@@ -229,9 +230,172 @@ right_value = np.sum(mask_light[y_r:y_r+h_r,x_r:x_r+w_r])/(w_r*h_r*255)
 
 temp = img.copy()
 if (left_value>right_value):
- if left_value>0.1: 
-  cv2.rectangle(temp,(x_l,y_l),(x_l+w_l,y_l+h_l),(0,255,0),4)
-else:
- if right_value>0.1:
-     cv2.rectangle(temp,(x_r,y_r),(x_r+w_r,y_r+h_r),(0,255,0),4)
+   if left_value>0.1: 
+       cv2.rectangle(temp,(x_l,y_l),(x_l+w_l,y_l+h_l),(0,255,0),4)
+   else:
+       if right_value>0.1:
+           cv2.rectangle(temp,(x_r,y_r),(x_r+w_r,y_r+h_r),(0,255,0),4)
 plt.imshow(temp[:,:,::-1])
+
+#2차 회의
+
+'''
+동공 경계 검출 방법
+1. Haar cascade를 이용하여 눈 검출
+2. HSV color model을 이용하여 빛이 있는 눈 선택
+3. Erosion & Dilation을 이용하여 눈꼬리 제거
+4. Sampling을 한 후 Robust Covariance Outlier Detection을 이용해 대략적인 각막의 중심 도출
+5. MCD(Minimum Covariance Determinant) center를 기준으로 RoI 결정
+6. Hough circle detection을 이용해 RoI 내에 MCD 중심과 가장 가까운 원을 동공의 경계로 정함
+'''
+
+# Haar cascade를 이용해서 눈 찾기
+
+img = cv2.imread('data_0712/sample/image001.jpg')
+eye_cascade = cv2.CascadeClassifier('haarcascade_eye.xml')
+eyes = eye_cascade.detectMultiScale(img)
+eyes = eyes[eyes[:,2].argsort()[-2:]]
+temp = img.copy()
+for (x,y,w,h) in eyes: 
+    # 눈 바운딩 박스 그리기
+    cv2.rectangle(temp,(x,y),(x+w,y+h),(0,255,0),4) 
+plt.imshow(temp[:,:,::-1])
+
+# MCD 중심 찾기
+mcd_centers=[]
+fig, ax = plt.subplots(nrows=2, ncols=4, figsize=(15,15)) 
+for i, eye in enumerate(eyes):
+    x,y,w,h = eye
+    # 눈 이미지만 추출
+    img_eye = img[y:y+h, x:x+w,:]
+    ax[i,0].imshow(img_eye[:,:,::-1])
+    img_gray = cv2.cvtColor(img_eye, cv2.COLOR_BGR2GRAY) 
+    # img_gray = cv2.medianBlur(img_gray, 5) # 그레이스케일된 이미지 블로우처리
+    # img_gray 10% threshold
+    threshold = np.percentile(img_gray.flatten(), 10)
+    _, binary = cv2.threshold(img_gray,threshold,255, cv2.THRESH_BINARY) 
+    binary = 255-binary
+    ax[i,1].imshow(binary, cmap='gray')
+
+    binary = cv2.erode(binary, None, iterations=3)
+    binary = cv2.dilate(binary, None, iterations=5) # (X,Y) 
+    # binary = cv2.erode(binary, None, iterations=5) 
+    ax[i,2].imshow(binary, cmap = 'gray')
+    # 이진화 된 이미지에서 검은색 부분을 좌표로 바꿈
+    temp=np.where(binary==0) 
+    X=np.concatenate([[temp[0]], [temp[1]]]).T
+
+    #Robust covariance, contamination:
+    mcd = EllipticEnvelope(support_fraction = 0.6, contamination=0.4)
+
+    if len(X)<3: 
+        continue
+    elif len(X)<300:
+        y_pred = mcd.fit(X).predict(X)
+    else:
+        y_pred = mcd.fit(X[::100]).predict(X[::100])
+  
+    mcd_center = mcd.location_.astype(int) mcd_center=mcd_center[::-1]
+    temp = img_eye.copy()
+    cv2.circle(temp, (mcd_center[0],mcd_center[1]),3,(0,0,255),3) 
+    ax[i,3].imshow(temp[:,:,::-1])
+    mcd_centers.append(mcd_center+np.array([x,y]))
+
+plt.show()
+
+# 빛이 있는 눈의 MCD center를 중심으로 작은 RoI 찾기
+
+img = cv2.imread('data_0712/sample/image030.jpg')
+''' 
+In [101]:  
+ mcd_centers
+Out[101]:
+ [array([985, 418]), array([226, 467])]
+'''
+def get_target_eye(img, mcd_centers, max_radious):
+    mcd_centers = np.array(mcd_centers)
+
+    height, width = img.shape[:2]
+    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    
+    lower_light = (0, 50, 200) upper_light = (255, 255, 255)
+    
+    mask_light = cv2.inRange(img_hsv, lower_light, upper_light)
+    
+    try:
+        left_eye = mcd_centers[mcd_centers[:,0] < width//2].flatten()
+        if len(left_eye)>2:
+           left_eye=left_eye[:2]
+        
+        x,y = left_eye
+        w = max_radious+10
+        h=w
+        left_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)
+    except:
+        # print('There is no left eye') left_eye = []
+        left_value = 0
+    try:
+        right_eye = mcd_centers[mcd_centers[:,0] >= width//2].flatten() 
+        if len(right_eye)>2:
+            right_eye=right_eye[:2]
+        x,y = right_eye
+        w = max_radious+10
+        h=w
+        right_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)
+    except:
+        # print('There is no right eye') right_eye = []
+        right_value = 0
+    threshold = (max_radious+10)**2*0.1*255
+    
+    if (left_value < threshold) & (right_value < threshold): 
+        # print('Unlighted')
+        return [], 2
+    if left_value < right_value: 
+        return right_eye, 1
+    else:
+        return left_eye, 0
+width, height = img.shape[:2]
+max_radious = int(np.sqrt(width**2+height**2)//21)
+target_eye, state = get_target_eye(img, mcd_centers, max_radious)
+                                        
+fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(15,15))
+                                        
+# MCD center
+x = int(target_eye[0]) 
+y = int(target_eye[1])
+h = max_radious + 10 
+w=h
+                                        
+# MCD center 중심으로 눈 RoI 결정
+img_eye = img[max(0,y-h):min(y+h, img.shape[0]),max(0,x-w):min(x+w,img.shape[1]),:]
+temp = img.copy()
+cv2.rectangle(temp, (x-w,y-h),(x+w,y+h),(255,255,0), 10)
+ax[0].imshow(temp)
+img_gray = cv2.cvtColor(img_eye, cv2.COLOR_BGR2GRAY)
+# 이진화
+threshold = np.percentile(img_gray.flatten(), 10) # 하위 10% 값을 기준으로 이진화
+_, binary = cv2.threshold(img_gray,threshold,255, cv2.THRESH_BINARY) 
+ax[1].imshow(binary, cmap='gray') # 이진화 결과
+binary = cv2.dilate(binary, None, iterations=3)
+binary = cv2.erode(binary, None, iterations=1)
+ax[2].imshow(binary, cmap='gray')# 전처리 결과
+                                        
+# Hough Circle Detection
+circles = cv2.HoughCircles(binary, cv2.HOUGH_GRADIENT, 
+                           dp = 1,
+                           minDist = 100, 
+                           param1=200,
+                           param2=10, 
+                           minRadius=int(max_radious*0.1), 
+                           maxRadius=int(max_radious*0.6))
+try:
+    circles = np.uint16(np.around(circles)) 
+    circles = circles[0][0]
+except:
+    # print("There is no pupil") 
+    pass
+temp = img_eye.copy()
+cv2.circle(temp, (circles[0],circles[1]),circles[2],(255,0,0),3) 
+cv2.circle(temp, (h,h),2, (0,0,255),2) 
+ax[3].imshow(temp[:,:,::-1])
+plt.show()   
