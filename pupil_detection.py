@@ -330,7 +330,7 @@ def get_target_eye(img, mcd_centers, max_radious):
         x,y = left_eye
         w = max_radious+10
         h=w
-        left_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)
+        left_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)])#코드가 짤려있었습니다.
     except:
         # print('There is no left eye') left_eye = []
         left_value = 0
@@ -341,7 +341,7 @@ def get_target_eye(img, mcd_centers, max_radious):
         x,y = right_eye
         w = max_radious+10
         h=w
-        right_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)
+        right_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)])#코드가 짤려있었습니다.
     except:
         # print('There is no right eye') right_eye = []
         right_value = 0
@@ -399,3 +399,126 @@ cv2.circle(temp, (circles[0],circles[1]),circles[2],(255,0,0),3)
 cv2.circle(temp, (h,h),2, (0,0,255),2) 
 ax[3].imshow(temp[:,:,::-1])
 plt.show()   
+
+# 동공의 HSV color를 이용한 동공검출
+width, height = img.shape[:2]
+max_radious = int(np.sqrt(width**2+height**2)//21)
+target_eye, state = get_target_eye(img, mcd_centers, max_radious)
+
+fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(15,15))
+
+# MCD center
+x = int(target_eye[0])
+y = int(target_eye[1]) 
+h = max_radious + 10 
+w=h
+
+# MCD center 중심으로 눈 RoI 결정
+img_eye = img[max(0,y-h):min(y+h, img.shape[0]),max(0,x-w):min(x+w,img.shape[1]),:] 
+temp = img.copy()
+cv2.rectangle(temp, (x-w,y-h),(x+w,y+h),(255,255,0), 10)
+img_gray = cv2.cvtColor(img_eye, cv2.COLOR_BGR2GRAY)
+hsv_eye = cv2.cvtColor(img_eye, cv2.COLOR_BGR2HSV)
+# 이진화
+threshold = np.percentile(img_gray.flatten(), 10)# 하위 10% 값을 기준으로 이진화
+_, binary = cv2.threshold(img_gray,threshold,255, cv2.THRESH_BINARY) 
+binary = cv2.dilate(binary, None, iterations=3)
+binary = cv2.erode(binary, None, iterations=1)
+                                        
+# Hough Circle Detection
+circles = cv2.HoughCircles(binary, cv2.HOUGH_GRADIENT, 
+                           dp = 1,
+                           minDist = 100, 
+                           param1=200,param2=10, 
+                           minRadius=int(max_radious*0.1), 
+                           maxRadius=int(max_radious*0.6))
+try:
+    circles = np.uint16(np.around(circles)) 
+    circles = circles[0][0]
+except:
+    # print("There is no pupil") 
+    pass
+# 원에 내저바는 직사각형의 HSV color 평균값과 분산 구하기
+length_ = int(circles[2]/(np.sqrt(2)*2))
+
+hsv_candidate = hsv_eye[circles[1]-length_:circles[1]+length_,circles[0]-length_:cirles[0]]#잘못되었을 수도 있습니다. 
+h_mean, h_std = np.mean(hsv_candidate[:,:,0]), np.std(hsv_candidate[:,:,0]) 
+s_mean, s_std = np.mean(hsv_candidate[:,:,1]), np.std(hsv_candidate[:,:,1]) 
+v_mean, v_std = np.mean(hsv_candidate[:,:,2]), np.std(hsv_candidate[:,:,2])
+s=5
+# 내접하는 사각형의 HSV color 범위
+lower_bound = (h_mean-s*h_std, s_mean-s*s_std, v_mean-s*v_std) 
+upper_bound = (h_mean+s*h_std, s_mean+s*s_std, v_mean+s*v_std)
+# 위 범위에 해당하는 영역
+img_mask = cv2.inRange(hsv_eye, lower_bound, upper_bound) 
+ax[0].imshow(img_mask, cmap = 'gray')
+
+# mask 전처리
+img_mask = cv2.erode(img_mask, None, iterations=1) 
+img_mask = cv2.dilate(img_mask, None, iterations=3) 
+ax[1].imshow(img_mask, cmap = 'gray')
+# mask에서 Hough circle detection
+pupil = cv2.HoughCircles(img_mask, cv2.HOUGH_GRADIENT, 
+                         dp = 1,
+                         minDist = 100, 
+                         param1=200,param2=10, 
+                         minRadius=int(max_radious*0.1), 
+                         maxRadius=int(max_radious*0.6))
+try:
+    pupil = np.uint16(np.around(pupil)) 
+    pupil = pupil[0][0]
+except:
+    # print("There is no pupil") pass
+cv2.circle(img_mask, (pupil[0],pupil[1]), pupil[2], 180,2) 
+ax[2].imshow(img_mask, cmap = 'gray')
+temp = img_eye.copy()
+cv2.circle(temp, (pupil[0],pupil[1]),pupil[2],(255,0,0),3) 
+cv2.circle(temp, (h,h),2, (0,0,255),2) ax[3].imshow(temp[:,:,::-1])
+plt.show()
+
+# Contour를 이용한 동공검출
+width, height = img.shape[:2]
+max_radious = int(np.sqrt(width**2+height**2)//21)
+target_eye, state = get_target_eye(img, mcd_centers, max_radious)
+fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(15,15))
+# MCD center
+x = int(target_eye[0]) 
+y = int(target_eye[1]) 
+h = max_radious + 10 
+w=h
+# MCD center 중심으로 눈 RoI 결정
+img_eye = img[max(0,y-h):min(y+h, img.shape[0]),max(0,x-w):min(x+w,img.shape[1]),:] 
+temp = img.copy()
+cv2.rectangle(temp, (x-w,y-h),(x+w,y+h),(255,255,0), 10)
+ax[0].imshow(temp)
+img_gray = cv2.cvtColor(img_eye, cv2.COLOR_BGR2GRAY) 
+hsv_eye = cv2.cvtColor(img_eye, cv2.COLOR_BGR2HSV)
+# 이진화
+threshold = np.percentile(img_gray.flatten(), 10)# 하위10% 값을 기준으로 이진화
+_, binary = cv2.threshold(img_gray,threshold,255, cv2.THRESH_BINARY) 
+binary = 255-binary
+ax[1].imshow(binary, cmap='gray')# 이진화 결과
+binary = cv2.erode(binary, None, iterations=3)
+# 이진화된 영역에서 contour 찾고 temp에 contour에 외접하는 직사각형 저장 
+contours, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NON 
+temp = []
+for cnt in contours:
+    x_c, y_c, w_c, h_c = cv2.boundingRect(cnt)
+    cv2.rectangle(binary, (x_c, y_c), (x_c + w_c, y_c + h_c), 180, 2) 
+    if x_c==0:
+        continue
+    temp.append([x_c, y_c, w_c, h_c])
+# contour에 외접하는 직사각형 중 높이가 가장 큰 직사각형의 중심과 높이를 선택
+temp = np.array(temp)
+max_h = max(temp[:,3])
+index = np.where(temp[:,3]==max_h)
+
+x_c, y_c= temp[:,:2][index[0][0]].flatten()
+w_c = max_h
+h_c = max_h
+circles = [int(x_c+max_h/2),int(y_c+max_h/2),int(max_h/2)]
+ax[2].imshow(binary, cmap='gray')# 전처리 결과
+cv2.circle(img_eye, (circles[0],circles[1]),circles[2],(255,0,0),3) 
+cv2.circle(img_eye, (h,h),2, (0,0,255),2) 
+ax[3].imshow(img_eye[:,:,::-1])
+plt.show()                 
