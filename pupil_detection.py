@@ -330,7 +330,7 @@ def get_target_eye(img, mcd_centers, max_radious):
         x,y = left_eye
         w = max_radious+10
         h=w
-        left_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)])#코드가 짤려있었습니다.
+        left_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w,width)])#코드가 짤려있어서 추가한부분입니다.
     except:
         # print('There is no left eye') left_eye = []
         left_value = 0
@@ -341,7 +341,7 @@ def get_target_eye(img, mcd_centers, max_radious):
         x,y = right_eye
         w = max_radious+10
         h=w
-        right_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w)])#코드가 짤려있었습니다.
+        right_value = np.sum(mask_light[max(0,y-h):min(y+h,height),max(0,x-w):min(x+w,width)])
     except:
         # print('There is no right eye') right_eye = []
         right_value = 0
